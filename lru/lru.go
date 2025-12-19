@@ -89,22 +89,33 @@ func (c *LRUCache) put(entry entry) {
 }
 
 func (c *LRUCache) Len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return len(c.values)
 }
 
 func (c *LRUCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.values = make(map[string]*list.Element)
 	c.list = list.New()
 }
 
 func (c *LRUCache) Resize(size int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.capacity = size
 	if size < 0 {
-		c.Clear()
+		// clear
+		c.values = make(map[string]*list.Element)
+		c.list = list.New()
 		return
 	}
 
-	for c.Len() > size {
+	for len(c.values) > size {
 		c.evictOldest()
 	}
 }
