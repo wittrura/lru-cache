@@ -3,6 +3,7 @@ package lru
 import (
 	"container/list"
 	"sync"
+	"time"
 )
 
 type LRUCache struct {
@@ -35,8 +36,15 @@ func (c *LRUCache) Get(key string) (value string, ok bool) {
 		return "", false
 	}
 
+	entry := e.Value.(entry)
+
+	if !entry.expiration.IsZero() && entry.expiration.Before(time.Now()) {
+		c.evict(e)
+		return "", false
+	}
+
 	c.list.MoveToBack(e)
-	return e.Value.(entry).value, ok
+	return entry.value, ok
 }
 
 func (c *LRUCache) Put(key, value string) {
@@ -47,19 +55,36 @@ func (c *LRUCache) Put(key, value string) {
 		return
 	}
 
+	entry := entry{key: key, value: value, expiration: time.Time{}}
+	c.put(entry)
+}
+
+func (c *LRUCache) PutWithTTL(key, value string, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.capacity <= 0 {
+		return
+	}
+
+	entry := entry{key: key, value: value, expiration: time.Now().Add(ttl)}
+	c.put(entry)
+}
+
+func (c *LRUCache) put(entry entry) {
 	// check if this is an update
-	if e, ok := c.values[key]; ok {
-		e.Value = entry{key: key, value: value}
+	if e, ok := c.values[entry.key]; ok {
+		e.Value = entry
 		c.list.MoveToBack(e)
-	} else {
-		// check about evicting
+	} else { // otherwise
+		// evict oldeset if necessary
 		if c.list.Len() == c.capacity {
 			c.evictOldest()
 		}
-		// add the new one to the end
-		e := c.list.PushBack(entry{key: key, value: value})
-		// update the map
-		c.values[key] = e
+
+		// and add new key
+		e := c.list.PushBack(entry)
+		c.values[entry.key] = e
 	}
 }
 
@@ -86,10 +111,15 @@ func (c *LRUCache) Resize(size int) {
 
 func (c *LRUCache) evictOldest() {
 	e := c.list.Front()
+	c.evict(e)
+}
+
+func (c *LRUCache) evict(e *list.Element) {
 	value := c.list.Remove(e)
 	delete(c.values, value.(entry).key)
 }
 
 type entry struct {
 	key, value string
+	expiration time.Time
 }

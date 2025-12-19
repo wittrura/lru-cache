@@ -549,3 +549,67 @@ func TestResizeNegativeDisablesCacheAndClearsExistingItems(t *testing.T) {
 		t.Fatalf("expected b to miss after Resize(-5)")
 	}
 }
+
+func TestPutWithTTL_GetBeforeExpiryHits(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.PutWithTTL("k1", "v1", 150*time.Millisecond)
+
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected k1 to be present before expiry, got %q ok=%v", v, ok)
+	}
+}
+
+func TestPutWithTTL_GetAfterExpiryMissesAndRemovesEntry(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.PutWithTTL("k1", "v1", 30*time.Millisecond)
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("expected Len()=1 after PutWithTTL, got %d", got)
+	}
+
+	time.Sleep(80 * time.Millisecond)
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected k1 to be expired and missed")
+	}
+
+	// Lazy expiration should delete the entry on access.
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after accessing expired key, got %d", got)
+	}
+}
+
+func TestPutWithoutTTL_DoesNotExpire(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.Put("k1", "v1")
+
+	time.Sleep(80 * time.Millisecond)
+
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected non-TTL entry to not expire, got %q ok=%v", v, ok)
+	}
+}
+
+func TestExpiredEntryDoesNotBlockCapacityAfterItExpires(t *testing.T) {
+	cache := NewLRU(1)
+
+	cache.PutWithTTL("k1", "v1", 30*time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
+
+	// After expiry, inserting a new key should work normally.
+	cache.Put("k2", "v2")
+
+	if v, ok := cache.Get("k2"); !ok || v != "v2" {
+		t.Fatalf("expected k2 to be present, got %q ok=%v", v, ok)
+	}
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected k1 to be expired and missing")
+	}
+
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("expected Len()=1 after inserting k2 into capacity-1 cache, got %d", got)
+	}
+}
