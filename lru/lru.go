@@ -54,17 +54,40 @@ func (c *LRUCache) Put(key, value string) {
 	} else {
 		// check about evicting
 		if c.list.Len() == c.capacity {
-			// remove front element from the list
-			e := c.list.Front()
-			_ = c.list.Remove(e)
-			// and delete its key from the map
-			delete(c.values, e.Value.(entry).key)
+			c.evictOldest()
 		}
 		// add the new one to the end
 		e := c.list.PushBack(entry{key: key, value: value})
 		// update the map
 		c.values[key] = e
 	}
+}
+
+func (c *LRUCache) Len() int {
+	return len(c.values)
+}
+
+func (c *LRUCache) Clear() {
+	c.values = make(map[string]*list.Element)
+	c.list = list.New()
+}
+
+func (c *LRUCache) Resize(size int) {
+	c.capacity = size
+	if size < 0 {
+		c.Clear()
+		return
+	}
+
+	for c.Len() > size {
+		c.evictOldest()
+	}
+}
+
+func (c *LRUCache) evictOldest() {
+	e := c.list.Front()
+	value := c.list.Remove(e)
+	delete(c.values, value.(entry).key)
 }
 
 type entry struct {

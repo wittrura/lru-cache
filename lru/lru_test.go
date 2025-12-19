@@ -378,3 +378,174 @@ func TestConcurrentDisabledCacheStillSafe(t *testing.T) {
 		t.Fatalf("expected disabled cache to always miss")
 	}
 }
+
+func TestLenOnEmptyCache(t *testing.T) {
+	cache := NewLRU(3)
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 on empty cache, got %d", got)
+	}
+}
+
+func TestLenAfterPutsAndEvictions(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.Put("a", "1")
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("expected Len()=1 after first Put, got %d", got)
+	}
+
+	cache.Put("b", "2")
+	if got := cache.Len(); got != 2 {
+		t.Fatalf("expected Len()=2 after second Put, got %d", got)
+	}
+
+	// Evict one, but length should remain at capacity.
+	cache.Put("c", "3")
+	if got := cache.Len(); got != 2 {
+		t.Fatalf("expected Len()=2 after eviction Put, got %d", got)
+	}
+}
+
+func TestClearEmptiesCache(t *testing.T) {
+	cache := NewLRU(3)
+
+	cache.Put("a", "1")
+	cache.Put("b", "2")
+	cache.Put("c", "3")
+
+	cache.Clear()
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after Clear, got %d", got)
+	}
+	if _, ok := cache.Get("a"); ok {
+		t.Fatalf("expected Get(a) to miss after Clear")
+	}
+	if _, ok := cache.Get("b"); ok {
+		t.Fatalf("expected Get(b) to miss after Clear")
+	}
+	if _, ok := cache.Get("c"); ok {
+		t.Fatalf("expected Get(c) to miss after Clear")
+	}
+}
+
+func TestClearIsIdempotent(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.Put("a", "1")
+	cache.Clear()
+	cache.Clear() // should not panic
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after repeated Clear, got %d", got)
+	}
+}
+
+func TestResizeDownEvictsOldestUntilWithinCapacity(t *testing.T) {
+	cache := NewLRU(5)
+
+	cache.Put("a", "1")
+	cache.Put("b", "2")
+	cache.Put("c", "3")
+	cache.Put("d", "4")
+	cache.Put("e", "5")
+
+	// Make "a" and then "b" the most recently used so eviction order is clear.
+	_, _ = cache.Get("a")
+	_, _ = cache.Get("b")
+
+	// Current LRU order (front->back) should be: c, d, e, a, b
+	cache.Resize(2)
+
+	if got := cache.Len(); got != 2 {
+		t.Fatalf("expected Len()=2 after Resize(2), got %d", got)
+	}
+
+	// Only the two most-recently-used should remain: a and b.
+	if _, ok := cache.Get("c"); ok {
+		t.Fatalf("expected c to be evicted after Resize down")
+	}
+	if _, ok := cache.Get("d"); ok {
+		t.Fatalf("expected d to be evicted after Resize down")
+	}
+	if _, ok := cache.Get("e"); ok {
+		t.Fatalf("expected e to be evicted after Resize down")
+	}
+
+	if v, ok := cache.Get("a"); !ok || v != "1" {
+		t.Fatalf("expected a to remain with value 1, got %q ok=%v", v, ok)
+	}
+	if v, ok := cache.Get("b"); !ok || v != "2" {
+		t.Fatalf("expected b to remain with value 2, got %q ok=%v", v, ok)
+	}
+}
+
+func TestResizeUpAllowsMoreEntries(t *testing.T) {
+	cache := NewLRU(1)
+
+	cache.Put("a", "1")
+	cache.Resize(3)
+
+	cache.Put("b", "2")
+	cache.Put("c", "3")
+
+	if got := cache.Len(); got != 3 {
+		t.Fatalf("expected Len()=3 after Resize up and 3 puts, got %d", got)
+	}
+
+	if v, ok := cache.Get("a"); !ok || v != "1" {
+		t.Fatalf("expected a to remain with value 1, got %q ok=%v", v, ok)
+	}
+	if v, ok := cache.Get("b"); !ok || v != "2" {
+		t.Fatalf("expected b to remain with value 2, got %q ok=%v", v, ok)
+	}
+	if v, ok := cache.Get("c"); !ok || v != "3" {
+		t.Fatalf("expected c to remain with value 3, got %q ok=%v", v, ok)
+	}
+}
+
+func TestResizeToZeroDisablesCacheAndClearsExistingItems(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.Put("a", "1")
+	cache.Put("b", "2")
+	cache.Resize(0)
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after Resize(0), got %d", got)
+	}
+	if _, ok := cache.Get("a"); ok {
+		t.Fatalf("expected a to miss after Resize(0)")
+	}
+	if _, ok := cache.Get("b"); ok {
+		t.Fatalf("expected b to miss after Resize(0)")
+	}
+
+	// Disabled semantics: Put is a no-op.
+	cache.Put("c", "3")
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after Put on disabled cache, got %d", got)
+	}
+	if _, ok := cache.Get("c"); ok {
+		t.Fatalf("expected c to miss on disabled cache")
+	}
+}
+
+func TestResizeNegativeDisablesCacheAndClearsExistingItems(t *testing.T) {
+	cache := NewLRU(2)
+
+	cache.Put("a", "1")
+	cache.Put("b", "2")
+	cache.Resize(-5)
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after Resize(-5), got %d", got)
+	}
+	if _, ok := cache.Get("a"); ok {
+		t.Fatalf("expected a to miss after Resize(-5)")
+	}
+	if _, ok := cache.Get("b"); ok {
+		t.Fatalf("expected b to miss after Resize(-5)")
+	}
+}
