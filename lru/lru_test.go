@@ -1,7 +1,11 @@
 package lru_test
 
 import (
+	"fmt"
+	"math/rand"
+	"sync"
 	"testing"
+	"time"
 
 	. "example.com/lru-cache/lru"
 )
@@ -251,5 +255,126 @@ func TestNegativeCapacityActsAsDisabledCache(t *testing.T) {
 	}
 	if _, ok := cache.Get("missing"); ok {
 		t.Fatalf("expected disabled cache (capacity<0) to always miss on Get")
+	}
+}
+
+func TestConcurrentPutGetDoesNotPanicOrRace(t *testing.T) {
+	// Run this with:
+	//   go test -race ./...
+	//
+	// This test is mostly about safety (no panic / no data race).
+	cache := NewLRU(64)
+
+	const (
+		goroutines = 16
+		opsPerG    = 2000
+		keySpace   = 128
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func(seed int64) {
+			defer wg.Done()
+
+			r := rand.New(rand.NewSource(seed))
+			for i := 0; i < opsPerG; i++ {
+				k := fmt.Sprintf("k-%d", r.Intn(keySpace))
+
+				// Mix reads/writes.
+				if r.Intn(100) < 45 {
+					cache.Put(k, fmt.Sprintf("v-%d", r.Int()))
+				} else {
+					_, _ = cache.Get(k)
+				}
+			}
+		}(time.Now().UnixNano() + int64(g))
+	}
+
+	wg.Wait()
+
+	// Simple sanity check: after some writes, at least one key should be present.
+	// (Not strictly guaranteed, but extremely likely given the workload.)
+	found := false
+	for i := 0; i < keySpace; i++ {
+		if _, ok := cache.Get(fmt.Sprintf("k-%d", i)); ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected at least one key to be present after concurrent ops")
+	}
+}
+
+func TestConcurrentSameKeyWritersAndReaders(t *testing.T) {
+	// Hammer a single key concurrently. This catches common issues around
+	// list element mutation and map updates.
+	cache := NewLRU(2)
+
+	const (
+		writers = 8
+		readers = 8
+		ops     = 2000
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(writers + readers)
+
+	for w := 0; w < writers; w++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < ops; i++ {
+				cache.Put("hot", fmt.Sprintf("writer-%d-%d", id, i))
+			}
+		}(w)
+	}
+
+	for r := 0; r < readers; r++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < ops; i++ {
+				_, _ = cache.Get("hot")
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Must not panic; value is nondeterministic but should be present
+	// unless capacity is disabled.
+	if _, ok := cache.Get("hot"); !ok {
+		t.Fatalf("expected 'hot' key to exist after many concurrent writes")
+	}
+}
+
+func TestConcurrentDisabledCacheStillSafe(t *testing.T) {
+	// Even if capacity disables the cache, concurrent access should be safe.
+	cache := NewLRU(0)
+
+	const (
+		goroutines = 16
+		opsPerG    = 1000
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < opsPerG; i++ {
+				cache.Put(fmt.Sprintf("k-%d", id), "v")
+				_, _ = cache.Get("k-any")
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// Disabled cache should always miss.
+	if _, ok := cache.Get("k-any"); ok {
+		t.Fatalf("expected disabled cache to always miss")
 	}
 }

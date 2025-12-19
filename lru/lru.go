@@ -1,12 +1,17 @@
 package lru
 
-import "container/list"
+import (
+	"container/list"
+	"sync"
+)
 
 type LRUCache struct {
 	capacity int
 
 	values map[string]*list.Element
 	list   *list.List
+
+	mu sync.Mutex
 }
 
 func NewLRU(capacity int) *LRUCache {
@@ -18,6 +23,9 @@ func NewLRU(capacity int) *LRUCache {
 }
 
 func (c *LRUCache) Get(key string) (value string, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.capacity <= 0 {
 		return "", false
 	}
@@ -32,6 +40,9 @@ func (c *LRUCache) Get(key string) (value string, ok bool) {
 }
 
 func (c *LRUCache) Put(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.capacity <= 0 {
 		return
 	}
