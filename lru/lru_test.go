@@ -1,6 +1,7 @@
 package lru_test
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -611,5 +612,109 @@ func TestExpiredEntryDoesNotBlockCapacityAfterItExpires(t *testing.T) {
 
 	if got := cache.Len(); got != 1 {
 		t.Fatalf("expected Len()=1 after inserting k2 into capacity-1 cache, got %d", got)
+	}
+}
+
+func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s", timeout)
+}
+
+func TestEvictorRemovesExpiredEntriesWithoutAccess(t *testing.T) {
+	cache := NewLRU(10)
+
+	ctx := t.Context()
+
+	cache.StartEvictor(ctx, 10*time.Millisecond)
+
+	cache.PutWithTTL("k1", "v1", 25*time.Millisecond)
+	cache.PutWithTTL("k2", "v2", 25*time.Millisecond)
+
+	// Wait until both are expired AND evictor has swept.
+	waitUntil(t, 300*time.Millisecond, func() bool {
+		return cache.Len() == 0
+	})
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected k1 to be evicted after TTL expiry")
+	}
+	if _, ok := cache.Get("k2"); ok {
+		t.Fatalf("expected k2 to be evicted after TTL expiry")
+	}
+}
+
+func TestEvictorDoesNotRemoveNonExpiredEntries(t *testing.T) {
+	cache := NewLRU(10)
+
+	ctx := t.Context()
+
+	cache.StartEvictor(ctx, 10*time.Millisecond)
+
+	cache.PutWithTTL("k1", "v1", 200*time.Millisecond)
+
+	// Give the evictor time to run a few cycles.
+	time.Sleep(60 * time.Millisecond)
+
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected k1 to still be present before expiry, got %q ok=%v", v, ok)
+	}
+	if cache.Len() != 1 {
+		t.Fatalf("expected Len()=1 before expiry, got %d", cache.Len())
+	}
+}
+
+func TestEvictorStopsAfterContextCancel(t *testing.T) {
+	cache := NewLRU(10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cache.StartEvictor(ctx, 10*time.Millisecond)
+
+	cache.PutWithTTL("k1", "v1", 25*time.Millisecond)
+
+	// Cancel quickly so the evictor should stop before it can reliably sweep.
+	cancel()
+
+	// Wait long enough that TTL has definitely expired.
+	time.Sleep(80 * time.Millisecond)
+
+	// After cancel, we should NOT expect the background goroutine to remove it.
+	// Lazy expiration via Get is still allowed, so we only check Len *before* Get.
+	if cache.Len() == 0 {
+		t.Fatalf("expected k1 to still be present in storage after cancel (no background sweep)")
+	}
+
+	// Now access should lazily remove it (existing behavior).
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected k1 to be expired and missed on Get")
+	}
+	if cache.Len() != 0 {
+		t.Fatalf("expected Len()=0 after Get removes expired entry, got %d", cache.Len())
+	}
+}
+
+func TestEvictorOnDisabledCacheIsSafeNoop(t *testing.T) {
+	cache := NewLRU(0)
+
+	ctx := t.Context()
+
+	// Should not panic / race
+	cache.StartEvictor(ctx, 5*time.Millisecond)
+
+	cache.PutWithTTL("k1", "v1", 10*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+
+	if cache.Len() != 0 {
+		t.Fatalf("expected disabled cache to remain empty, got Len()=%d", cache.Len())
+	}
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected disabled cache to always miss")
 	}
 }

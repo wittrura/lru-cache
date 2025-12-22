@@ -2,6 +2,7 @@ package lru
 
 import (
 	"container/list"
+	"context"
 	"sync"
 	"time"
 )
@@ -38,7 +39,7 @@ func (c *LRUCache) Get(key string) (value string, ok bool) {
 
 	entry := e.Value.(entry)
 
-	if !entry.expiration.IsZero() && entry.expiration.Before(time.Now()) {
+	if entry.isExpired(time.Now()) {
 		c.evict(e)
 		return "", false
 	}
@@ -120,12 +121,43 @@ func (c *LRUCache) Resize(size int) {
 	}
 }
 
+func (c *LRUCache) StartEvictor(ctx context.Context, interval time.Duration) {
+	if c.capacity <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				c.mu.Lock()
+				for e := c.list.Front(); e != nil; {
+					next := e.Next() // grab next in case we evict current
+					entry := e.Value.(entry)
+					if entry.isExpired(t) {
+						c.evict(e)
+					}
+					e = next
+				}
+				c.mu.Unlock()
+			}
+		}
+	}()
+}
+
 func (c *LRUCache) evictOldest() {
 	e := c.list.Front()
 	c.evict(e)
 }
 
 func (c *LRUCache) evict(e *list.Element) {
+	if e == nil {
+		return
+	}
 	value := c.list.Remove(e)
 	delete(c.values, value.(entry).key)
 }
@@ -133,4 +165,9 @@ func (c *LRUCache) evict(e *list.Element) {
 type entry struct {
 	key, value string
 	expiration time.Time
+}
+
+func (e entry) isExpired(t time.Time) bool {
+	return !e.expiration.IsZero() &&
+		e.expiration.Before(t)
 }
