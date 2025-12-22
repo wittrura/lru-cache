@@ -24,7 +24,7 @@ func NewLRU(capacity int) *LRUCache {
 	}
 }
 
-func (c *LRUCache) Get(key string) (value string, ok bool) {
+func (c *LRUCache) Get(key string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -45,7 +45,7 @@ func (c *LRUCache) Get(key string) (value string, ok bool) {
 	}
 
 	c.list.MoveToBack(e)
-	return entry.value, ok
+	return entry.value, true
 }
 
 func (c *LRUCache) Put(key, value string) {
@@ -109,7 +109,7 @@ func (c *LRUCache) Resize(size int) {
 	defer c.mu.Unlock()
 
 	c.capacity = size
-	if size < 0 {
+	if size <= 0 {
 		// clear
 		c.values = make(map[string]*list.Element)
 		c.list = list.New()
