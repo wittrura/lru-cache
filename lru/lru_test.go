@@ -718,3 +718,95 @@ func TestEvictorOnDisabledCacheIsSafeNoop(t *testing.T) {
 		t.Fatalf("expected disabled cache to always miss")
 	}
 }
+
+type fakeClock struct {
+	t time.Time
+}
+
+func newFakeClock(start time.Time) *fakeClock {
+	return &fakeClock{t: start}
+}
+
+func (c *fakeClock) Now() time.Time {
+	return c.t
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.t = c.t.Add(d)
+}
+
+func TestTTLUsesInjectedClock_NoSleepNeeded(t *testing.T) {
+	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
+	cache := NewLRUWithNow(2, clk.Now)
+
+	cache.PutWithTTL("k1", "v1", 10*time.Second)
+
+	// Before expiry
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected k1 to be present before expiry, got %q ok=%v", v, ok)
+	}
+
+	// Advance past expiry
+	clk.Advance(11 * time.Second)
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected k1 to be expired after advancing clock")
+	}
+
+	// Accessing expired key should remove it.
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after expired key access removes it, got %d", got)
+	}
+}
+
+func TestTTLUsesDefaultTimeNowGivenNil(t *testing.T) {
+	cache := NewLRUWithNow(2, nil)
+
+	// Doesn't panic
+	cache.PutWithTTL("k1", "v1", 10*time.Second)
+
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected k1 to be present before expiry, got %q ok=%v", v, ok)
+	}
+}
+
+func TestPutWithTTL_TTLZeroExpiresImmediately(t *testing.T) {
+	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
+	cache := NewLRUWithNow(2, clk.Now)
+
+	cache.PutWithTTL("k1", "v1", 0)
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected ttl=0 to expire immediately")
+	}
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after immediate expiry, got %d", got)
+	}
+}
+
+func TestPutWithTTL_TTLNegativeExpiresImmediately(t *testing.T) {
+	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
+	cache := NewLRUWithNow(2, clk.Now)
+
+	cache.PutWithTTL("k1", "v1", -1*time.Second)
+
+	if _, ok := cache.Get("k1"); ok {
+		t.Fatalf("expected ttl<0 to expire immediately")
+	}
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 after immediate expiry, got %d", got)
+	}
+}
+
+func TestPutWithoutTTL_DoesNotExpireWithInjectedClock(t *testing.T) {
+	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
+	cache := NewLRUWithNow(2, clk.Now)
+
+	cache.Put("k1", "v1")
+
+	clk.Advance(24 * time.Hour)
+
+	if v, ok := cache.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected non-TTL key to never expire, got %q ok=%v", v, ok)
+	}
+}

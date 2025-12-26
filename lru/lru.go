@@ -13,6 +13,10 @@ type LRUCache struct {
 	values map[string]*list.Element
 	list   *list.List
 
+	now func() time.Time
+
+	evictorIsRunning bool
+
 	mu sync.Mutex
 }
 
@@ -21,6 +25,20 @@ func NewLRU(capacity int) *LRUCache {
 		capacity: capacity,
 		values:   make(map[string]*list.Element),
 		list:     list.New(),
+		now:      time.Now,
+	}
+}
+
+func NewLRUWithNow(capacity int, now func() time.Time) *LRUCache {
+	if now == nil {
+		now = time.Now
+	}
+
+	return &LRUCache{
+		capacity: capacity,
+		values:   make(map[string]*list.Element),
+		list:     list.New(),
+		now:      now,
 	}
 }
 
@@ -39,7 +57,7 @@ func (c *LRUCache) Get(key string) (string, bool) {
 
 	entry := e.Value.(entry)
 
-	if entry.isExpired(time.Now()) {
+	if entry.isExpired(c.now()) {
 		c.evict(e)
 		return "", false
 	}
@@ -68,7 +86,7 @@ func (c *LRUCache) PutWithTTL(key, value string, ttl time.Duration) {
 		return
 	}
 
-	entry := entry{key: key, value: value, expiration: time.Now().Add(ttl)}
+	entry := entry{key: key, value: value, expiration: c.now().Add(ttl)}
 	c.put(entry)
 }
 
@@ -122,9 +140,17 @@ func (c *LRUCache) Resize(size int) {
 }
 
 func (c *LRUCache) StartEvictor(ctx context.Context, interval time.Duration) {
-	if c.capacity <= 0 {
+	if interval <= 0 {
 		return
 	}
+
+	// avoid kicking off multiple go routines for evicting
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.evictorIsRunning {
+		return
+	}
+	c.evictorIsRunning = true
 
 	ticker := time.NewTicker(interval)
 	go func() {
@@ -133,7 +159,8 @@ func (c *LRUCache) StartEvictor(ctx context.Context, interval time.Duration) {
 			select {
 			case <-ctx.Done():
 				return
-			case t := <-ticker.C:
+			case <-ticker.C:
+				t := c.now()
 				c.mu.Lock()
 				for e := c.list.Front(); e != nil; {
 					next := e.Next() // grab next in case we evict current
@@ -169,5 +196,5 @@ type entry struct {
 
 func (e entry) isExpired(t time.Time) bool {
 	return !e.expiration.IsZero() &&
-		e.expiration.Before(t)
+		!e.expiration.After(t) // expire is before OR equal to current time t
 }
