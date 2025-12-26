@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetOnEmptyCacheReturnsNotFound(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	if _, ok := cache.Get("missing"); ok {
 		t.Fatalf("expected ok=false for missing key in empty cache")
@@ -20,7 +20,7 @@ func TestGetOnEmptyCacheReturnsNotFound(t *testing.T) {
 }
 
 func TestPutAndGetSingleItem(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("foo", "bar")
 
@@ -34,7 +34,7 @@ func TestPutAndGetSingleItem(t *testing.T) {
 }
 
 func TestPutOverwritesExistingKey(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("foo", "bar")
 	cache.Put("foo", "baz") // overwrite
@@ -52,7 +52,7 @@ func TestEvictsLeastRecentlyInsertedWhenCapacityExceeded(t *testing.T) {
 	// For this first iteration we only rely on insertion order:
 	// with no intervening Get calls, the earliest inserted key
 	// should be evicted when capacity is exceeded.
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -72,7 +72,7 @@ func TestEvictsLeastRecentlyInsertedWhenCapacityExceeded(t *testing.T) {
 }
 
 func TestEvictionWithExactCapacity(t *testing.T) {
-	cache := NewLRU(1)
+	cache := NewLRUStringCache(1)
 
 	cache.Put("a", "1")
 	if v, ok := cache.Get("a"); !ok || v != "1" {
@@ -91,7 +91,7 @@ func TestEvictionWithExactCapacity(t *testing.T) {
 }
 
 func TestPutAtCapacityEvictsAndStillInsertsNewKey(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -116,7 +116,7 @@ func TestPutAtCapacityEvictsAndStillInsertsNewKey(t *testing.T) {
 }
 
 func TestGetMovesKeyToMostRecentlyUsed(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -141,7 +141,7 @@ func TestGetMovesKeyToMostRecentlyUsed(t *testing.T) {
 }
 
 func TestPutOnExistingKeyUpdatesValueAndMovesToMostRecentlyUsed(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -164,7 +164,7 @@ func TestPutOnExistingKeyUpdatesValueAndMovesToMostRecentlyUsed(t *testing.T) {
 }
 
 func TestGetMissDoesNotAffectRecency(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -189,7 +189,7 @@ func TestGetMissDoesNotAffectRecency(t *testing.T) {
 }
 
 func TestRepeatedGetsKeepKeyMostRecentlyUsed(t *testing.T) {
-	cache := NewLRU(3)
+	cache := NewLRUStringCache(3)
 
 	cache.Put("a", "1")
 	cache.Put("b", "2")
@@ -226,7 +226,7 @@ func TestRepeatedGetsKeepKeyMostRecentlyUsed(t *testing.T) {
 }
 
 func TestZeroCapacityActsAsDisabledCache(t *testing.T) {
-	cache := NewLRU(0)
+	cache := NewLRUStringCache(0)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -243,7 +243,7 @@ func TestZeroCapacityActsAsDisabledCache(t *testing.T) {
 }
 
 func TestNegativeCapacityActsAsDisabledCache(t *testing.T) {
-	cache := NewLRU(-1)
+	cache := NewLRUStringCache(-1)
 
 	cache.Put("k1", "v1")
 	cache.Put("k2", "v2")
@@ -264,7 +264,7 @@ func TestConcurrentPutGetDoesNotPanicOrRace(t *testing.T) {
 	//   go test -race ./...
 	//
 	// This test is mostly about safety (no panic / no data race).
-	cache := NewLRU(64)
+	cache := NewLRUStringCache(64)
 
 	const (
 		goroutines = 16
@@ -312,7 +312,7 @@ func TestConcurrentPutGetDoesNotPanicOrRace(t *testing.T) {
 func TestConcurrentSameKeyWritersAndReaders(t *testing.T) {
 	// Hammer a single key concurrently. This catches common issues around
 	// list element mutation and map updates.
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	const (
 		writers = 8
@@ -352,7 +352,7 @@ func TestConcurrentSameKeyWritersAndReaders(t *testing.T) {
 
 func TestConcurrentDisabledCacheStillSafe(t *testing.T) {
 	// Even if capacity disables the cache, concurrent access should be safe.
-	cache := NewLRU(0)
+	cache := NewLRUStringCache(0)
 
 	const (
 		goroutines = 16
@@ -381,7 +381,7 @@ func TestConcurrentDisabledCacheStillSafe(t *testing.T) {
 }
 
 func TestLenOnEmptyCache(t *testing.T) {
-	cache := NewLRU(3)
+	cache := NewLRUStringCache(3)
 
 	if got := cache.Len(); got != 0 {
 		t.Fatalf("expected Len()=0 on empty cache, got %d", got)
@@ -389,7 +389,7 @@ func TestLenOnEmptyCache(t *testing.T) {
 }
 
 func TestLenAfterPutsAndEvictions(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("a", "1")
 	if got := cache.Len(); got != 1 {
@@ -409,7 +409,7 @@ func TestLenAfterPutsAndEvictions(t *testing.T) {
 }
 
 func TestClearEmptiesCache(t *testing.T) {
-	cache := NewLRU(3)
+	cache := NewLRUStringCache(3)
 
 	cache.Put("a", "1")
 	cache.Put("b", "2")
@@ -432,7 +432,7 @@ func TestClearEmptiesCache(t *testing.T) {
 }
 
 func TestClearIsIdempotent(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("a", "1")
 	cache.Clear()
@@ -444,7 +444,7 @@ func TestClearIsIdempotent(t *testing.T) {
 }
 
 func TestResizeDownEvictsOldestUntilWithinCapacity(t *testing.T) {
-	cache := NewLRU(5)
+	cache := NewLRUStringCache(5)
 
 	cache.Put("a", "1")
 	cache.Put("b", "2")
@@ -483,7 +483,7 @@ func TestResizeDownEvictsOldestUntilWithinCapacity(t *testing.T) {
 }
 
 func TestResizeUpAllowsMoreEntries(t *testing.T) {
-	cache := NewLRU(1)
+	cache := NewLRUStringCache(1)
 
 	cache.Put("a", "1")
 	cache.Resize(3)
@@ -507,7 +507,7 @@ func TestResizeUpAllowsMoreEntries(t *testing.T) {
 }
 
 func TestResizeToZeroDisablesCacheAndClearsExistingItems(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("a", "1")
 	cache.Put("b", "2")
@@ -534,7 +534,7 @@ func TestResizeToZeroDisablesCacheAndClearsExistingItems(t *testing.T) {
 }
 
 func TestResizeNegativeDisablesCacheAndClearsExistingItems(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("a", "1")
 	cache.Put("b", "2")
@@ -552,7 +552,7 @@ func TestResizeNegativeDisablesCacheAndClearsExistingItems(t *testing.T) {
 }
 
 func TestPutWithTTL_GetBeforeExpiryHits(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.PutWithTTL("k1", "v1", 150*time.Millisecond)
 
@@ -562,7 +562,7 @@ func TestPutWithTTL_GetBeforeExpiryHits(t *testing.T) {
 }
 
 func TestPutWithTTL_GetAfterExpiryMissesAndRemovesEntry(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.PutWithTTL("k1", "v1", 30*time.Millisecond)
 	if got := cache.Len(); got != 1 {
@@ -582,7 +582,7 @@ func TestPutWithTTL_GetAfterExpiryMissesAndRemovesEntry(t *testing.T) {
 }
 
 func TestPutWithoutTTL_DoesNotExpire(t *testing.T) {
-	cache := NewLRU(2)
+	cache := NewLRUStringCache(2)
 
 	cache.Put("k1", "v1")
 
@@ -594,7 +594,7 @@ func TestPutWithoutTTL_DoesNotExpire(t *testing.T) {
 }
 
 func TestExpiredEntryDoesNotBlockCapacityAfterItExpires(t *testing.T) {
-	cache := NewLRU(1)
+	cache := NewLRUStringCache(1)
 
 	cache.PutWithTTL("k1", "v1", 30*time.Millisecond)
 	time.Sleep(80 * time.Millisecond)
@@ -629,7 +629,7 @@ func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
 }
 
 func TestEvictorRemovesExpiredEntriesWithoutAccess(t *testing.T) {
-	cache := NewLRU(10)
+	cache := NewLRUStringCache(10)
 
 	ctx := t.Context()
 
@@ -652,7 +652,7 @@ func TestEvictorRemovesExpiredEntriesWithoutAccess(t *testing.T) {
 }
 
 func TestEvictorDoesNotRemoveNonExpiredEntries(t *testing.T) {
-	cache := NewLRU(10)
+	cache := NewLRUStringCache(10)
 
 	ctx := t.Context()
 
@@ -672,7 +672,7 @@ func TestEvictorDoesNotRemoveNonExpiredEntries(t *testing.T) {
 }
 
 func TestEvictorStopsAfterContextCancel(t *testing.T) {
-	cache := NewLRU(10)
+	cache := NewLRUStringCache(10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cache.StartEvictor(ctx, 10*time.Millisecond)
@@ -701,7 +701,7 @@ func TestEvictorStopsAfterContextCancel(t *testing.T) {
 }
 
 func TestEvictorOnDisabledCacheIsSafeNoop(t *testing.T) {
-	cache := NewLRU(0)
+	cache := NewLRUStringCache(0)
 
 	ctx := t.Context()
 
@@ -737,7 +737,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 
 func TestTTLUsesInjectedClock_NoSleepNeeded(t *testing.T) {
 	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
-	cache := NewLRUWithNow(2, clk.Now)
+	cache := NewLRUStringCacheWithNow(2, clk.Now)
 
 	cache.PutWithTTL("k1", "v1", 10*time.Second)
 
@@ -760,7 +760,7 @@ func TestTTLUsesInjectedClock_NoSleepNeeded(t *testing.T) {
 }
 
 func TestTTLUsesDefaultTimeNowGivenNil(t *testing.T) {
-	cache := NewLRUWithNow(2, nil)
+	cache := NewLRUStringCacheWithNow(2, nil)
 
 	// Doesn't panic
 	cache.PutWithTTL("k1", "v1", 10*time.Second)
@@ -772,7 +772,7 @@ func TestTTLUsesDefaultTimeNowGivenNil(t *testing.T) {
 
 func TestPutWithTTL_TTLZeroExpiresImmediately(t *testing.T) {
 	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
-	cache := NewLRUWithNow(2, clk.Now)
+	cache := NewLRUStringCacheWithNow(2, clk.Now)
 
 	cache.PutWithTTL("k1", "v1", 0)
 
@@ -786,7 +786,7 @@ func TestPutWithTTL_TTLZeroExpiresImmediately(t *testing.T) {
 
 func TestPutWithTTL_TTLNegativeExpiresImmediately(t *testing.T) {
 	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
-	cache := NewLRUWithNow(2, clk.Now)
+	cache := NewLRUStringCacheWithNow(2, clk.Now)
 
 	cache.PutWithTTL("k1", "v1", -1*time.Second)
 
@@ -800,7 +800,7 @@ func TestPutWithTTL_TTLNegativeExpiresImmediately(t *testing.T) {
 
 func TestPutWithoutTTL_DoesNotExpireWithInjectedClock(t *testing.T) {
 	clk := newFakeClock(time.Date(2025, 12, 11, 10, 0, 0, 0, time.UTC))
-	cache := NewLRUWithNow(2, clk.Now)
+	cache := NewLRUStringCacheWithNow(2, clk.Now)
 
 	cache.Put("k1", "v1")
 
@@ -812,7 +812,7 @@ func TestPutWithoutTTL_DoesNotExpireWithInjectedClock(t *testing.T) {
 }
 
 func TestGenericPutGet_StringInt(t *testing.T) {
-	c := New[string, int](1)
+	c := NewLRUCache[string, int](1)
 
 	c.Put("a", 1)
 
@@ -831,7 +831,7 @@ func TestGenericPutGet_StructPointerValue(t *testing.T) {
 		Name string
 	}
 
-	c := New[int, *user](1)
+	c := NewLRUCache[int, *user](1)
 
 	u := &user{ID: 7, Name: "Ryan"}
 	c.Put(7, u)
@@ -846,7 +846,7 @@ func TestGenericPutGet_StructPointerValue(t *testing.T) {
 }
 
 func TestGenericLRUEviction_OrderRespectsRecency(t *testing.T) {
-	c := New[string, string](2)
+	c := NewLRUCache[string, string](2)
 
 	c.Put("k1", "v1")
 	c.Put("k2", "v2")
@@ -871,7 +871,7 @@ func TestGenericLRUEviction_OrderRespectsRecency(t *testing.T) {
 }
 
 func TestGenericDisabledCache_CapacityZeroIsNoop(t *testing.T) {
-	c := New[string, string](0)
+	c := NewLRUCache[string, string](0)
 
 	c.Put("a", "1")
 
@@ -884,7 +884,7 @@ func TestGenericDisabledCache_CapacityZeroIsNoop(t *testing.T) {
 }
 
 func TestGenericPutWithTTL_ExpiresAndThenMisses(t *testing.T) {
-	c := New[string, int](2)
+	c := NewLRUCache[string, int](2)
 
 	c.PutWithTTL("k1", 1, 10*time.Millisecond)
 
@@ -903,7 +903,7 @@ func TestGenericPutWithTTL_ExpiresAndThenMisses(t *testing.T) {
 }
 
 func TestGenericClear_RemovesAllEntries(t *testing.T) {
-	c := New[int, string](3)
+	c := NewLRUCache[int, string](3)
 
 	c.Put(1, "one")
 	c.Put(2, "two")
@@ -929,7 +929,7 @@ func TestGenericClear_RemovesAllEntries(t *testing.T) {
 }
 
 func TestGenericResizeDown_EvictsLeastRecentlyUsedUntilWithinCapacity(t *testing.T) {
-	c := New[string, bool](3)
+	c := NewLRUCache[string, bool](3)
 
 	c.Put("a", true)
 	c.Put("b", false)
