@@ -810,3 +810,146 @@ func TestPutWithoutTTL_DoesNotExpireWithInjectedClock(t *testing.T) {
 		t.Fatalf("expected non-TTL key to never expire, got %q ok=%v", v, ok)
 	}
 }
+
+func TestGenericPutGet_StringInt(t *testing.T) {
+	c := New[string, int](1)
+
+	c.Put("a", 1)
+
+	got, ok := c.Get("a")
+	if !ok {
+		t.Fatalf("expected key a to be present")
+	}
+	if got != 1 {
+		t.Fatalf("expected 1, got %d", got)
+	}
+}
+
+func TestGenericPutGet_StructPointerValue(t *testing.T) {
+	type user struct {
+		ID   int
+		Name string
+	}
+
+	c := New[int, *user](1)
+
+	u := &user{ID: 7, Name: "Ryan"}
+	c.Put(7, u)
+
+	got, ok := c.Get(7)
+	if !ok {
+		t.Fatalf("expected key 7 to be present")
+	}
+	if got == nil || got.ID != 7 || got.Name != "Ryan" {
+		t.Fatalf("unexpected user value: %+v", got)
+	}
+}
+
+func TestGenericLRUEviction_OrderRespectsRecency(t *testing.T) {
+	c := New[string, string](2)
+
+	c.Put("k1", "v1")
+	c.Put("k2", "v2")
+
+	// Touch k1 so k2 becomes LRU
+	if _, ok := c.Get("k1"); !ok {
+		t.Fatalf("expected k1 to be present")
+	}
+
+	// Insert k3 should evict k2
+	c.Put("k3", "v3")
+
+	if _, ok := c.Get("k2"); ok {
+		t.Fatalf("expected k2 to be evicted as LRU")
+	}
+	if v, ok := c.Get("k1"); !ok || v != "v1" {
+		t.Fatalf("expected k1 to remain, got %q ok=%v", v, ok)
+	}
+	if v, ok := c.Get("k3"); !ok || v != "v3" {
+		t.Fatalf("expected k3 to remain, got %q ok=%v", v, ok)
+	}
+}
+
+func TestGenericDisabledCache_CapacityZeroIsNoop(t *testing.T) {
+	c := New[string, string](0)
+
+	c.Put("a", "1")
+
+	if _, ok := c.Get("a"); ok {
+		t.Fatalf("expected disabled cache to always miss")
+	}
+	if got := c.Len(); got != 0 {
+		t.Fatalf("expected Len()=0 for disabled cache, got %d", got)
+	}
+}
+
+func TestGenericPutWithTTL_ExpiresAndThenMisses(t *testing.T) {
+	c := New[string, int](2)
+
+	c.PutWithTTL("k1", 1, 10*time.Millisecond)
+
+	// Should hit immediately
+	if v, ok := c.Get("k1"); !ok || v != 1 {
+		t.Fatalf("expected k1 to be present before expiry, got %q ok=%v", v, ok)
+	}
+
+	// Wait past expiry
+	time.Sleep(40 * time.Millisecond)
+
+	// Should miss after expiry
+	if _, ok := c.Get("k1"); ok {
+		t.Fatalf("expected k1 to be expired and missing")
+	}
+}
+
+func TestGenericClear_RemovesAllEntries(t *testing.T) {
+	c := New[int, string](3)
+
+	c.Put(1, "one")
+	c.Put(2, "two")
+	c.Put(3, "three")
+
+	c.Clear()
+
+	if _, ok := c.Get(1); ok {
+		t.Fatalf("expected key 1 to miss after Clear")
+	}
+	if _, ok := c.Get(2); ok {
+		t.Fatalf("expected key 2 to miss after Clear")
+	}
+	if _, ok := c.Get(3); ok {
+		t.Fatalf("expected key 3 to miss after Clear")
+	}
+
+	// Should still function after Clear
+	c.Put(4, "four")
+	if v, ok := c.Get(4); !ok || v != "four" {
+		t.Fatalf("expected key 4 to be present after Clear, got %q ok=%v", v, ok)
+	}
+}
+
+func TestGenericResizeDown_EvictsLeastRecentlyUsedUntilWithinCapacity(t *testing.T) {
+	c := New[string, bool](3)
+
+	c.Put("a", true)
+	c.Put("b", false)
+	c.Put("c", true)
+
+	// Make "a" most-recently-used so "b" becomes the LRU.
+	if _, ok := c.Get("a"); !ok {
+		t.Fatalf("expected a to be present")
+	}
+
+	// Resize down to 2 should evict "b".
+	c.Resize(2)
+
+	if _, ok := c.Get("b"); ok {
+		t.Fatalf("expected b to be evicted after Resize(2)")
+	}
+	if v, ok := c.Get("a"); !ok || v != true {
+		t.Fatalf("expected a to remain, got %t ok=%v", v, ok)
+	}
+	if v, ok := c.Get("c"); !ok || v != true {
+		t.Fatalf("expected c to remain, got %t ok=%v", v, ok)
+	}
+}
